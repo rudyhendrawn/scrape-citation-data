@@ -19,12 +19,12 @@ Script untuk scraping data sitasi berdasarkan nama dosen dan Google Scholar ID.
 ### Penggunaan
 1. Pastikan semua requirements terpenuhi.
 2. Clone repository ini.
-3. Jalankan `python main.py --input_file <path input> --output_file <path output> --using_samples True --num_of_samples 3`
+3. Jalankan `python main.py --input_file <path input> --output_file <path output> --using_samples True --num_of_samples <jumlah sampel>`
 4. Contoh penggunaan:
 ```bash
 python main.py --input_file data/input.xlsx --output_file data/output.csv --using_samples True --num_of_samples 3
 ```
-5. Secara default, script ini akan hanya mengambil data sitasi dari 3 sampel data saja. Jika ingin mengambil semua data, gunakan `--using_samples False`.
+5. Jika ingin mengambil semua data, gunakan `--using_samples False`.
 ---
 ### Contoh File Input
 |No.| scholar_id |
