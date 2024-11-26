@@ -25,7 +25,7 @@ Script untuk scraping data sitasi berdasarkan nama dosen dan Google Scholar ID.
 python main.py --input_file data/input.xlsx --output_file data/output.csv --using_samples True --num_of_samples 3
 ```
 5. Secara default, script ini akan hanya mengambil data sitasi dari 3 sampel data saja. Jika ingin mengambil semua data, gunakan `--using_samples False`.
-
+---
 ### Contoh File Input
 |No.| scholar_id |
 |---|------------|
