@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service as ChromeService
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # Function to get publication data
@@ -94,7 +95,29 @@ def get_citation_data(article_id, article_url):
 		print(f'Error accessing {url}: {e}')
 		return {}
 
-def main(input_file, output_file, using_samples=True, num_of_samples=3):
+def fetch_citation_data(row):
+	"""
+	Wrapper function to fetch citation data using thread.
+
+	Args:
+		row (pd.Series): A row of the DataFrame containing article_id and article_url.
+	
+	Returns:
+		list: A list of dictionaries containing citation data.
+	"""
+	article_id = row['article_id']
+	article_url = row['article_url']
+	citation_per_year = get_citation_data(article_id, article_url)
+	citation_data = []
+	for year, citations in citation_per_year.items():
+		citation_data.append({
+			'article_id': article_id,
+			'year': year,
+			'num_of_citations': citations
+		})
+	return citation_data
+
+def main(input_file, output_file, using_samples, num_of_samples):
 	"""
 	Main function to scrape Google Scholar citation data.
 
@@ -125,7 +148,10 @@ def main(input_file, output_file, using_samples=True, num_of_samples=3):
 	delay_times_1 = 1
 
 	# Load the scholar data
-	if using_samples:
+	if num_of_samples == None: # Check if the number of samples is not provided
+		num_of_samples = 0
+
+	if using_samples == True and num_of_samples > 0:
 		df_idgs = pd.read_excel(input_file)
 		df_samples = df_idgs.sample(num_of_samples)
 		print(f"Using number of samples: {num_of_samples}")
@@ -153,20 +179,13 @@ def main(input_file, output_file, using_samples=True, num_of_samples=3):
 	# DataFrame to store the citation data per article id
 	df_citations = pd.DataFrame(columns=['article_id', 'year', 'num_of_citations'])
 
-	# Loop through the article ids to get the citation data
-	for index, row in tqdm(df_publications.iterrows(), total=df_publications.shape[0], desc="Getting citation data per article"):
-		article_id = row['article_id']
-		article_url = row['article_url']
-		# print(f"Accessing article ID {article_id} from {article_url}")
-
-		citations_per_year = get_citation_data(article_id, article_url)
-
-		# Insert citation data into new DataFrame
-		for year, citations in citations_per_year.items():
-			df_citations = pd.concat([
-				df_citations,
-				pd.DataFrame({'article_id': [article_id], 'year': [year], 'num_of_citations': [citations]})
-			], ignore_index=True)
+	# Use ThreadPoolExecutor to speed up the process to fetch citation data concurrently
+	with ThreadPoolExecutor(max_workers=5) as executor:
+		futures = [executor.submit(fetch_citation_data, row) for index, row in df_publications.iterrows()]
+		for future in tqdm(as_completed(futures), total=len(futures), desc="Getting citation data per article"):
+			citation_data = future.result()
+			for data in citation_data:
+				df_citations = pd.concat([df_citations, pd.DataFrame([data])], ignore_index=True)
 
 	# Close the browser
 	browser.quit()
@@ -193,8 +212,8 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Scrape Google Scholar citation data.')
 	parser.add_argument('--input_file', type=str, help='Input file containing the scholar ids')
 	parser.add_argument('--output_file', type=str, help='Output file to save the citation data, should be CSV file')
-	parser.add_argument('--using_samples', type=bool, default=True, help='Using samples or not, default is True')
-	parser.add_argument('--num_of_samples', type=int, default=3, help='Number of samples to use, default is 3')
+	parser.add_argument('--using_samples', type=bool, help='Using samples or not, default is True')
+	parser.add_argument('--num_of_samples', type=int, help='Number of samples to use')
 	
 	if not parser.parse_args().input_file:
 		parser.print_help()
