@@ -210,6 +210,3 @@ if __name__ == '__main__':
 	
 	args = parser.parse_args()
 	main(args.input_file, args.output_file, args.using_samples, args.num_of_samples)
-
-	# Usage
-	# python scrap_citation_data.py --input_file /Users/rudyhendrawan/miniforge3/datasets/DTPR-UPDATE-3.xlsx --output_file sample_citation_data.csv --using_samples True --num_of_samples 3
