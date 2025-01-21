@@ -1,17 +1,19 @@
 import os
 import time
+import logging
 import argparse
 import pandas as pd
-from tqdm import tqdm
+# from tqdm import tqdm
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service as ChromeService
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Function to get publication data
-def get_publication_data(scholar_id):
+def get_publication_data(scholar_id, author_name, delay_times=1.0):
 	"""
 	Scrape publication data for a given Google Scholar ID.
 
@@ -23,7 +25,23 @@ def get_publication_data(scholar_id):
 	"""
 	url = f'https://scholar.google.com/citations?user={scholar_id}&hl=en'
 	browser.get(url)
+	logging.info(f'Getting publication data for scholar_id: {scholar_id} - {author_name}')
 	time.sleep(delay_times_1)
+
+	# Click the "Show more" button
+	while True:
+		try:
+			show_more_button = browser.find_element('id', 'gsc_bpf')
+			if show_more_button.is_displayed():
+				show_more_button.click()
+				logging.info('Clicking the "Show more" button')
+				time.sleep(delay_times)
+				break
+			else:
+				logging.info('No more "Show more" button')
+				break
+		except Exception as e:
+			break
 
 	html = browser.page_source
 	soup = BeautifulSoup(html, 'html.parser')
@@ -51,24 +69,16 @@ def get_publication_data(scholar_id):
 			'article_url': article_url,
 			'article_id': article_id,
 		})
+		logging.info(f'Append publication data: {publications[-1]["title"]}')
 
 	return publications
 
-def get_citation_data(article_id, article_url):
-	"""
-	Scrape citation data for a given article ID.
-
-	Args:
-		article_id (str): Article ID of the publication.
-		article_url (str): URL of the publication.
-
-	Returns:
-		dict: A dictionary containing citation data per year.
-	"""
+def get_citation_data(article_id, article_url, delay_times=2.0):
 	url = f'https://scholar.google.com{article_url}'
 	try:
 		browser.get(url)
-		time.sleep(delay_times_1)  # Wait for the page to load
+		time.sleep(delay_times)  # Wait for the page to load
+		logging.info(f'Getting citation data for article ID {article_id} - URL: {url}')
 		html = browser.page_source
 		soup = BeautifulSoup(html, 'html.parser')
 
@@ -89,7 +99,8 @@ def get_citation_data(article_id, article_url):
 			year_value = year.text.strip()
 			citation_count = bar.find('span', class_='gsc_oci_g_al').text.strip()
 			citations_per_year[year_value] = int(citation_count)
-
+			logging.info(f'Citation data for article ID {article_id}: , year: {year_value}, num of citation: {citations_per_year}')
+		
 		return citations_per_year
 	except Exception as e:
 		print(f'Error accessing {url}: {e}')
@@ -141,11 +152,11 @@ def main(input_file, output_file, using_samples, num_of_samples):
 
 	# Initialize the browser for scraping article list
 	global browser 
-	browser = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
-
 	# Delay times
 	global delay_times_1
-	delay_times_1 = 1
+	
+	browser = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
+	delay_times_1 = 1.0
 
 	# Load the scholar data
 	if num_of_samples == None: # Check if the number of samples is not provided
@@ -154,21 +165,24 @@ def main(input_file, output_file, using_samples, num_of_samples):
 	if using_samples == True and num_of_samples > 0:
 		df_idgs = pd.read_excel(input_file)
 		df_samples = df_idgs.sample(num_of_samples)
-		print(f"Using number of samples: {num_of_samples}")
+		logging.info(f"Using number of samples: {num_of_samples}")
 		for index, row in df_samples.iterrows():
-			print(f"Using Dosen Name: {row['NAMA']} with Scholar ID: {row['scholar_id']}")
+			logging.info(f"Using Dosen Name: {row['NAMA']} with Scholar ID: {row['scholar_id']}")
 	else:
 		df_samples = pd.read_excel(input_file)
-		print(f"Using all data in {input_file}")
+		logging.info(f"Using all data in {input_file}")
 
 	# DataFrame to store the publication data per scholar id
-	df_publications = pd.DataFrame(columns=['scholar_id', 'title', 'authors', 'publisher', 'year', 'num_of_citations'])
+	columns=['scholar_id', 'title', 'authors', 'publisher', 'year', 'citations', 'article_url', 'article_id']
+	df_publications = pd.DataFrame(columns=columns)
 
 	# Loop through the scholar ids to get the publication data
-	for index, row in tqdm(df_samples.iterrows(), total=df_samples.shape[0], desc="Getting publication data"):
+	for index, row in df_samples.iterrows():
 		scholar_id = row['scholar_id']
+		author_name = row['NAMA']
 		publications = get_publication_data(scholar_id)
 		df_publications = pd.concat([df_publications, pd.DataFrame(publications)], ignore_index=True)
+		logging.info(f"Appending publication data for scholar_id: {scholar_id} - {author_name}")
 
 	# Close the browser
 	browser.quit()
@@ -179,13 +193,30 @@ def main(input_file, output_file, using_samples, num_of_samples):
 	# DataFrame to store the citation data per article id
 	df_citations = pd.DataFrame(columns=['article_id', 'year', 'num_of_citations'])
 
+	# Loop through the publication data to get the citation data
+	for index, row in df_publications.iterrows():
+		article_id = row['article_id']
+		article_url = row['article_url']
+		citation_per_year = get_citation_data(article_id, article_url)
+
+		# Insert citation data into DataFrame
+		for year, citations in citation_per_year.items():
+			df_citations = pd.concat([df_citations, pd.DataFrame([{
+				'article_id': article_id,
+				'year': year,
+				'num_of_citations': citations
+			}])], ignore_index=True)
+			logging.info(f"Appending citation data for article_id: {article_id}")
+
+
 	# Use ThreadPoolExecutor to speed up the process to fetch citation data concurrently
-	with ThreadPoolExecutor(max_workers=5) as executor:
-		futures = [executor.submit(fetch_citation_data, row) for index, row in df_publications.iterrows()]
-		for future in tqdm(as_completed(futures), total=len(futures), desc="Getting citation data per article"):
-			citation_data = future.result()
-			for data in citation_data:
-				df_citations = pd.concat([df_citations, pd.DataFrame([data])], ignore_index=True)
+	# Not stable yet, because the we need a scheduling mechanism to avoid the blocking of the data.
+	# with ThreadPoolExecutor(max_workers=5) as executor:
+	# 	futures = [executor.submit(fetch_citation_data, row) for index, row in df_publications.iterrows()]
+	# 	for future in tqdm(as_completed(futures), total=len(futures), desc="Getting citation data per article"):
+	# 		citation_data = future.result()
+	# 		for data in citation_data:
+	# 			df_citations = pd.concat([df_citations, pd.DataFrame([data])], ignore_index=True)
 
 	# Close the browser
 	browser.quit()
